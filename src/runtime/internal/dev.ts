@@ -132,6 +132,7 @@ export class SvelteComponentDev extends SvelteComponent {
 
 	constructor(options: {
 		target: Element;
+		style?: Element;
 		anchor?: Element;
 		props?: Props;
 		hydrate?: boolean;
@@ -231,6 +232,7 @@ export class SvelteComponentTyped<
 
 	constructor(options: {
 		target: Element;
+		style?: Element;
 		anchor?: Element;
 		props?: Props;
 		hydrate?: boolean;
