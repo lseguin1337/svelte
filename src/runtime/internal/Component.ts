@@ -173,9 +173,19 @@ export let SvelteElement;
 if (typeof HTMLElement === 'function') {
 	SvelteElement = class extends HTMLElement {
 		$$: T$$;
+		component: SvelteComponent;
 		$$set?: ($$props: any) => void;
 		constructor() {
 			super();
+			Object.defineProperties(this, {
+				'$$': {
+					get: () => this.component.$$,
+				},
+				$$set: {
+					get: () => this.component.$$set,
+					set: ($$set) => this.component.$$set = $$set,
+				},
+			});
 			this.attachShadow({ mode: 'open' });
 		}
 
@@ -198,28 +208,27 @@ if (typeof HTMLElement === 'function') {
 			run_all(this.$$.on_disconnect);
 		}
 
+		addEventListener(type, callback) {
+			this.$on(type, callback);
+		}
+
+		removeEventListener(type, callback) {
+			const callbacks = (this.$$.callbacks[type] || (this.$$.callbacks[type] = []));
+			const index = callbacks.indexOf(callback);
+			if (index !== -1) callbacks.splice(index, 1);
+		}
+
 		$destroy() {
-			destroy_component(this, 1);
-			this.$destroy = noop;
+			this.component.$destroy();
 		}
 
 		$on(type, callback) {
 			// TODO should this delegate to addEventListener?
-			const callbacks = (this.$$.callbacks[type] || (this.$$.callbacks[type] = []));
-			callbacks.push(callback);
-
-			return () => {
-				const index = callbacks.indexOf(callback);
-				if (index !== -1) callbacks.splice(index, 1);
-			};
+			return this.component.$on(type, callback);
 		}
 
 		$set($$props) {
-			if (this.$$set && !is_empty($$props)) {
-				this.$$.skip_bound = true;
-				this.$$set($$props);
-				this.$$.skip_bound = false;
-			}
+			this.component.$set($$props);
 		}
 	};
 }

@@ -6,7 +6,7 @@ import { walk } from 'estree-walker';
 import { extract_names, Scope } from '../utils/scope';
 import { invalidate } from './invalidate';
 import Block from './Block';
-import { ClassDeclaration, FunctionExpression, Node, Statement, ObjectExpression, Expression } from 'estree';
+import { Identifier, ClassDeclaration, FunctionExpression, Node, Statement, ObjectExpression, Expression } from 'estree';
 import { apply_preprocessor_sourcemap } from '../../utils/mapped_code';
 import { RawSourceMap, DecodedSourceMap } from '@ampproject/remapping/dist/types/types';
 
@@ -183,7 +183,7 @@ export default function dom(
 		if (expected.length) {
 			dev_props_check = b`
 				const { ctx: #ctx } = this.$$;
-				const props = ${options.customElement ? x`this.attributes` : x`options.props || {}`};
+				const props = options.props || {};
 				${expected.map(prop => b`
 				if (${renderer.reference(prop.name)} === undefined && !('${prop.export_name}' in props)) {
 					@_console.warn("<${component.tag}> was created without expected prop '${prop.export_name}'");
@@ -471,7 +471,31 @@ export default function dom(
 		}
 	}
 
-	if (options.customElement) {
+	const superclass = {
+		type: 'Identifier',
+		name: options.dev ? '@SvelteComponentDev' : '@SvelteComponent'
+	};
+
+	const declaration = b`
+		class ${name} extends ${superclass} {
+			constructor(options) {
+				super(${options.dev && 'options'});
+				@init(this, options, ${definition}, ${has_create_fragment ? 'create_fragment' : 'null'}, ${not_equal}, ${prop_indexes}, ${dirty});
+				${should_add_css && b`if (this.$$.style && !this.$$.style.querySelector("#${component.stylesheet.id}-style")) ${add_css}(this.$$.style);`}
+				${options.dev && b`@dispatch_dev("SvelteRegisterComponent", { component: this, tagName: "${name.name}", options, id: create_fragment.name });`}
+
+				${dev_props_check}
+			}
+		}
+	`[0] as ClassDeclaration;
+	declaration.body.body.push(...accessors);
+	body.push(declaration);
+
+	if (component.component_options.tag) {
+		const elementName: Identifier = {
+			...name,
+			name: `${name.name}Element`,
+		};
 
 		let init_props = x`@attribute_to_object(this.attributes)`;
 		if (uses_slots) {
@@ -479,15 +503,10 @@ export default function dom(
 		}
 
 		const declaration = b`
-			class ${name} extends @SvelteElement {
+			class ${elementName} extends @SvelteElement {
 				constructor(options) {
 					super();
-
-					${css.code && b`this.shadowRoot.innerHTML = \`<style>${css.code.replace(/\\/g, '\\\\')}${options.dev ? `\n/*# sourceMappingURL=${css.map.toUrl()} */` : ''}</style>\`;`}
-
-					@init(this, { target: this.shadowRoot, style: this.shadowRoot, props: ${init_props}, customElement: true }, ${definition}, ${has_create_fragment ? 'create_fragment' : 'null'}, ${not_equal}, ${prop_indexes}, ${dirty});
-
-					${dev_props_check}
+					this.component = new ${name}({ props: ${init_props}, target: this.shadowRoot, style: this.shadowRoot });
 
 					if (options) {
 						if (options.target) {
@@ -517,37 +536,11 @@ export default function dom(
 			});
 		}
 
-		declaration.body.body.push(...accessors);
+		declaration.body.body.push(...accessors.map((a) => ({...a})));
 
-		body.push(declaration);
-
-		if (component.tag != null) {
-			body.push(b`
-				@_customElements.define("${component.tag}", ${name});
-			`);
-		}
-	} else {
-		const superclass = {
-			type: 'Identifier',
-			name: options.dev ? '@SvelteComponentDev' : '@SvelteComponent'
-		};
-
-		const declaration = b`
-			class ${name} extends ${superclass} {
-				constructor(options) {
-					super(${options.dev && 'options'});
-					@init(this, options, ${definition}, ${has_create_fragment ? 'create_fragment' : 'null'}, ${not_equal}, ${prop_indexes}, ${dirty});
-					${should_add_css && b`if (this.$$.style && !this.$$.style.querySelector("#${component.stylesheet.id}-style")) ${add_css}(this.$$.style);`}
-					${options.dev && b`@dispatch_dev("SvelteRegisterComponent", { component: this, tagName: "${name.name}", options, id: create_fragment.name });`}
-
-					${dev_props_check}
-				}
-			}
-		`[0] as ClassDeclaration;
-
-		declaration.body.body.push(...accessors);
-
-		body.push(declaration);
+		body.push(b`
+			@_customElements.define("${component.component_options.tag}", ${declaration});
+		`);
 	}
 
 	return { js: flatten(body, []), css };

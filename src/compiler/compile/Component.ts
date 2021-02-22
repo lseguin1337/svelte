@@ -1365,7 +1365,7 @@ function process_component_options(component: Component, nodes) {
 		accessors:
 			'accessors' in component.compile_options
 				? component.compile_options.accessors
-				: !!component.compile_options.customElement,
+				: false,
 		preserveWhitespace: !!component.compile_options.preserveWhitespace,
 		namespace: component.compile_options.namespace
 	};
@@ -1413,14 +1413,8 @@ function process_component_options(component: Component, nodes) {
 							});
 						}
 
-						if (tag && !component.compile_options.customElement) {
-							component.warn(attribute, {
-								code: 'missing-custom-element-compile-options',
-								message: "The 'tag' option is used when generating a custom element. Did you forget the 'customElement: true' compile option?"
-							});
-						}
-
 						component_options.tag = tag;
+						component_options.accessors = component_options.accessors || !!component_options.tag;
 						break;
 					}
 
