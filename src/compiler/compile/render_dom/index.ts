@@ -39,7 +39,7 @@ export default function dom(
 		? `${css.code}\n/*# sourceMappingURL=${css.map.toUrl()} */`
 		: css.code;
 
-	const add_css = component.get_unique_name('add_css');
+	const style_installer = component.get_unique_name('style_installer');
 
 	const should_add_css = (
 		!options.customElement &&
@@ -49,12 +49,7 @@ export default function dom(
 
 	if (should_add_css) {
 		body.push(b`
-			function ${add_css}(rootLocation) {
-				var style = @element("style");
-				style.id = "${component.stylesheet.id}-style";
-				style.textContent = "${styles}";
-				@append(rootLocation, style);
-			}
+			const ${style_installer} = @prepare_style("${component.stylesheet.id}-style", "${styles}");
 		`);
 	}
 
@@ -480,8 +475,8 @@ export default function dom(
 		class ${name} extends ${superclass} {
 			constructor(options) {
 				super(${options.dev && 'options'});
+				${should_add_css && b`@mount_style(this, options, ${style_installer});`}
 				@init(this, options, ${definition}, ${has_create_fragment ? 'create_fragment' : 'null'}, ${not_equal}, ${prop_indexes}, ${dirty});
-				${should_add_css && b`if (this.$$.style && !this.$$.style.querySelector("#${component.stylesheet.id}-style")) ${add_css}(this.$$.style);`}
 				${options.dev && b`@dispatch_dev("SvelteRegisterComponent", { component: this, tagName: "${name.name}", options, id: create_fragment.name });`}
 
 				${dev_props_check}
@@ -497,28 +492,10 @@ export default function dom(
 			name: `${name.name}Element`,
 		};
 
-		let init_props = x`@attribute_to_object(this.attributes)`;
-		if (uses_slots) {
-			init_props = x`{ ...${init_props}, $$slots: @get_custom_elements_slots(this) }`;
-		}
-
 		const declaration = b`
 			class ${elementName} extends @SvelteElement {
-				constructor(options) {
-					super();
-					this.component = new ${name}({ props: ${init_props}, target: this.shadowRoot, style: this.shadowRoot });
-
-					if (options) {
-						if (options.target) {
-							@insert(options.target, this, options.anchor);
-						}
-
-						${(props.length > 0 || uses_props || uses_rest) && b`
-						if (options.props) {
-							this.$set(options.props);
-							@flush();
-						}`}
-					}
+				constructor() {
+					super(${uses_slots ? x`true` : x`false`}, ${name});
 				}
 			}
 		`[0] as ClassDeclaration;
@@ -538,8 +515,9 @@ export default function dom(
 
 		declaration.body.body.push(...accessors.map((a) => ({...a})));
 
+		body.push(declaration);
 		body.push(b`
-			@_customElements.define("${component.component_options.tag}", ${declaration});
+			@_customElements.define("${component.component_options.tag}", ${elementName});
 		`);
 	}
 

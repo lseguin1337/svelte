@@ -1,7 +1,7 @@
 import { add_render_callback, flush, schedule_update, dirty_components } from './scheduler';
 import { current_component, set_current_component } from './lifecycle';
 import { blank_object, is_empty, is_function, run, run_all, noop } from './utils';
-import { children, detach } from './dom';
+import { append, attribute_to_object, children, detach, element, get_custom_elements_slots } from './dom';
 import { transition_in } from './transitions';
 
 interface Fragment {
@@ -100,6 +100,38 @@ function make_dirty(component, i) {
 	component.$$.dirty[(i / 31) | 0] |= (1 << (i % 31));
 }
 
+export function install_style_node(root, styleId, styles) {
+	if (!root.querySelector(`#${styleId}`)) {
+		const style = element('style');
+		style.id = styleId;
+		style.textContent = styles;
+		append(root, style);
+	}
+}
+
+export function prepare_style(styleId, styles) {
+	if (
+		is_function(window.CSSStyleSheet)
+		&& is_function((CSSStyleSheet.prototype as any).replace)
+	) {
+		const sheet = new CSSStyleSheet();
+		(sheet as any).replace(styles);
+		return (cssRoot) => {
+			if (!("adoptedStyleSheets" in cssRoot)) {
+				install_style_node(cssRoot, styleId, styles);
+			} else if (cssRoot.adoptedStyleSheets.indexOf(sheet) === -1) {
+				cssRoot.adoptedStyleSheets = cssRoot.adoptedStyleSheets.concat(sheet);
+			}
+		};
+	}
+	return (cssRoot) => install_style_node(cssRoot, styleId, styles);
+}
+
+export function mount_style(component, options, stylesheet_installer) {
+	const root = component.cssRoot = options.cssRoot || current_component?.cssRoot || document.head;
+	stylesheet_installer(root);
+}
+
 export function init(component, options, instance, create_fragment, not_equal, props, dirty = [-1]) {
 	const parent_component = current_component;
 	set_current_component(component);
@@ -172,24 +204,41 @@ export function init(component, options, instance, create_fragment, not_equal, p
 export let SvelteElement;
 if (typeof HTMLElement === 'function') {
 	SvelteElement = class extends HTMLElement {
-		$$: T$$;
-		component: SvelteComponent;
-		$$set?: ($$props: any) => void;
-		constructor() {
+		keepSvelteComponentAlive = false;
+
+		private timeout: number;
+		$$?: T$$;
+
+		component?: SvelteComponent;
+
+		props: any = {};
+
+		constructor(
+			uses_slots: boolean,
+			private Component: typeof SvelteComponent,
+		) {
 			super();
-			Object.defineProperties(this, {
-				'$$': {
-					get: () => this.component.$$,
-				},
-				$$set: {
-					get: () => this.component.$$set,
-					set: ($$set) => this.component.$$set = $$set,
-				},
-			});
+			this.props = {
+				...attribute_to_object(this.attributes),
+				...(uses_slots ? { $$slots: get_custom_elements_slots(this) } : {}),
+			};
+			Object.defineProperty(this, '$$', { get: () => this.component?.$$ });
 			this.attachShadow({ mode: 'open' });
 		}
 
+		$setup(): SvelteComponent {
+			return new (this.Component as any)({
+				target: this.shadowRoot,
+				cssRoot: this.shadowRoot,
+				props: this.props
+			});
+		}
+
 		connectedCallback() {
+			if (!this.component)
+				this.component = this.$setup();
+			else
+				clearTimeout(this.timeout);
 			const { on_mount } = this.$$;
 			this.$$.on_disconnect = on_mount.map(run).filter(is_function);
 
@@ -206,10 +255,14 @@ if (typeof HTMLElement === 'function') {
 
 		disconnectedCallback() {
 			run_all(this.$$.on_disconnect);
+			if (!this.keepSvelteComponentAlive) {
+				// destroy the context if the component is not imediatelly re-attach to the dom
+				this.timeout = setTimeout(() => this.$destroy());
+			}
 		}
 
 		addEventListener(type, callback) {
-			this.$on(type, callback);
+			this.component.$on(type, callback);
 		}
 
 		removeEventListener(type, callback) {
@@ -220,15 +273,13 @@ if (typeof HTMLElement === 'function') {
 
 		$destroy() {
 			this.component.$destroy();
-		}
-
-		$on(type, callback) {
-			// TODO should this delegate to addEventListener?
-			return this.component.$on(type, callback);
+			this.component = null;
+			clearTimeout(this.timeout);
 		}
 
 		$set($$props) {
-			this.component.$set($$props);
+			this.props = { ...this.props, ...$$props };
+			this.component?.$set($$props);
 		}
 	};
 }
