@@ -154,8 +154,6 @@ export function init(component, options, instance, create_fragment, not_equal, p
 		after_update: [],
 		context: new Map(parent_component ? parent_component.$$.context : []),
 
-		style: options.style || parent_component?.$$.style || document.head,
-
 		// everything else
 		callbacks: blank_object(),
 		dirty,
@@ -210,7 +208,6 @@ if (typeof HTMLElement === 'function') {
 		$$?: T$$;
 
 		component?: SvelteComponent;
-
 		props: any = {};
 
 		constructor(

@@ -6,7 +6,7 @@ import { walk } from 'estree-walker';
 import { extract_names, Scope } from '../utils/scope';
 import { invalidate } from './invalidate';
 import Block from './Block';
-import { Identifier, ClassDeclaration, FunctionExpression, Node, Statement, ObjectExpression, Expression } from 'estree';
+import { ClassDeclaration, FunctionExpression, Node, Statement, ObjectExpression, Expression } from 'estree';
 import { apply_preprocessor_sourcemap } from '../../utils/mapped_code';
 import { RawSourceMap, DecodedSourceMap } from '@ampproject/remapping/dist/types/types';
 
@@ -471,6 +471,13 @@ export default function dom(
 		name: options.dev ? '@SvelteComponentDev' : '@SvelteComponent'
 	};
 
+	let should_declare_custom_element = !!component.component_options.tag;
+
+	const elementName = {
+		type: 'Identifier',
+		name: `${name.name}Element`,
+	};
+
 	const declaration = b`
 		class ${name} extends ${superclass} {
 			constructor(options) {
@@ -483,15 +490,24 @@ export default function dom(
 			}
 		}
 	`[0] as ClassDeclaration;
+
+	if (should_declare_custom_element) {
+		declaration.body.body.push({
+			type: 'MethodDefinition',
+			kind: 'get',
+			static: true,
+			computed: false,
+			key: { type: 'Identifier', name: 'Element' },
+			value: x`function() {
+				return ${elementName};
+			}` as FunctionExpression
+		});
+	}
+	
 	declaration.body.body.push(...accessors);
 	body.push(declaration);
 
-	if (component.component_options.tag) {
-		const elementName: Identifier = {
-			...name,
-			name: `${name.name}Element`,
-		};
-
+	if (should_declare_custom_element) {
 		const declaration = b`
 			class ${elementName} extends @SvelteElement {
 				constructor() {
@@ -516,9 +532,7 @@ export default function dom(
 		declaration.body.body.push(...accessors.map((a) => ({...a})));
 
 		body.push(declaration);
-		body.push(b`
-			@_customElements.define("${component.component_options.tag}", ${elementName});
-		`);
+		body.push(b`@_customElements.define("${component.component_options.tag}", ${elementName});`);
 	}
 
 	return { js: flatten(body, []), css };
