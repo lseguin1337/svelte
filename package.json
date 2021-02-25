@@ -1,5 +1,5 @@
 {
-  "name": "svelte",
+  "name": "cs-svelte",
   "version": "3.32.3",
   "description": "Cybernetically enhanced web apps",
   "module": "index.mjs",
