@@ -61,6 +61,7 @@
   },
   "types": "types/runtime/index.d.ts",
   "scripts": {
+    "prepublishOnly": "node check_publish_env.js",
     "test": "mocha",
     "test:unit": "mocha --require sucrase/register --recursive src/**/__test__.ts",
     "quicktest": "mocha",
